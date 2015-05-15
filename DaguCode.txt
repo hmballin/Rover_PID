@@ -1,0 +1,291 @@
+/**************************************************************/
+/*                     ROVER 5 QUAD PID                       */
+/*                  Created by: Heith Ballin                  */
+/*                     & Alex MORA                            */
+/*                     14 MAY 2015                            */
+/**************************************************************/
+
+#define DELTA_T 200.00
+
+//Initializing pins
+////PWM Pins
+int pwmPin1 = 3;
+int pwmPin2 = 4;
+int pwmPin3 = 5;
+int pwmPin4 = 6;
+
+//Wheel Speed
+int pwm1 = 134;
+int pwm2 = 174;
+int pwm3 = 106;
+int pwm4 = 108;
+
+////Logic Pins for Direction of Motors
+int dirPin1 = 30;
+int dirPin2 = 32;
+int dirPin3 = 34;
+int dirPin4 = 36;
+
+////Encoder Channel Pins
+int enc1_ch = 18;
+int enc2_ch = 19;
+int enc3_ch = 20;
+int enc4_ch = 21;
+
+////Initialized integer values for encoder variables
+volatile unsigned long encPos1 = 0;//long because we have 100 tickes per
+volatile unsigned long encPos2 = 0;
+volatile unsigned long encPos3 = 0;
+volatile unsigned long encPos4 = 0;
+
+//Input for system
+unsigned long time_ms;
+float time_sec;
+float R = 60; //60 ticks per cycle
+float Ts = DELTA_T; //200 ms
+
+
+
+//***********************************
+//       MOTOR PID VARIABLES
+//***********************************
+//Motor 1 PID Vars
+float measured_1 = 0;
+float previous_error_1 = 0;
+float proportional_1 = 0;
+float integral_1 = 0;
+float derivative_1 = 0;
+float error_1 = 0;
+float output_1 = 0;
+float Kp1 = 0.00025;
+float Ki1 = 0.003;
+float Kd1 = 0.000015;
+
+//Motor 2 PID Vars
+float measured_2 = 0;
+float previous_error_2 = 0;
+float integral_2 = 0;
+float derivative_2 = 0;
+float error_2 = 0;
+float output_2 = 0;
+float Kp2 = 0.0002;
+float Ki2 = 0.005;
+float Kd2 = 0.00002;
+
+//Motor 3 PID Vars
+float measured_3 = 0;
+float previous_error_3 = 0;
+float integral_3 = 0;
+float derivative_3 = 0;
+float error_3 = 0;
+float output_3 = 0;
+float Kp3 = 0.002;
+float Ki3 = 0.008;
+float Kd3 = 0.00001;
+
+//Motor 4 PID Vars
+float measured_4 = 0;
+float previous_error_4 = 0;
+float integral_4 = 0;
+float derivative_4 = 0;
+float error_4 = 0;
+float output_4 = 0;
+float Kp4 = 0.0004;
+float Ki4 = 0.00575;
+float Kd4 = 0.00001;
+
+long previousMillis = 0;
+
+void setup()
+{
+  
+  Serial.begin(9600);
+
+  // Set PWN pins as outputs
+  pinMode(pwmPin1,OUTPUT);
+  pinMode(pwmPin2,OUTPUT);
+  pinMode(pwmPin3,OUTPUT);
+  pinMode(pwmPin4,OUTPUT);
+
+  // Set direction pins as outputs
+  pinMode(dirPin1,OUTPUT);
+  pinMode(dirPin2,OUTPUT);
+  pinMode(dirPin3,OUTPUT);
+  pinMode(dirPin4,OUTPUT);
+
+  // Set encoder pins to inputs
+  pinMode(enc1_ch, INPUT);
+  pinMode(enc2_ch, INPUT);
+  pinMode(enc3_ch, INPUT);
+  pinMode(enc4_ch, INPUT);
+
+  //Use internal pullup for encoders
+  digitalWrite(enc1_ch, HIGH);
+  digitalWrite(enc2_ch, HIGH);
+  digitalWrite(enc3_ch, HIGH);
+  digitalWrite(enc4_ch, HIGH);
+
+  //Interrupt must be used for encoders to not miss a tick
+  attachInterrupt(5, doEncoder1, RISING); //Rising
+  attachInterrupt(4, doEncoder2, RISING);
+  attachInterrupt(3, doEncoder3, RISING);
+  attachInterrupt(2, doEncoder4, RISING);
+
+}
+
+void loop()
+{
+  unsigned long currentMillis = millis();
+  long deltaT = currentMillis - previousMillis;
+
+  if( deltaT > DELTA_T)
+  {
+    //Serial.print("Sampling Time: ");
+    //Serial.println(deltaT);
+    previousMillis = currentMillis;
+    digitalWrite(dirPin1, HIGH);
+    digitalWrite(dirPin2, HIGH);
+    digitalWrite(dirPin3, HIGH);
+    digitalWrite(dirPin4, HIGH);
+	
+	//constrain the pwm pins to operate within our motor specs
+    pwm1 = constrain(pwm1, 40, 220);
+    pwm2 = constrain(pwm2, 40, 220);
+    pwm3 = constrain(pwm3, 40, 220);
+    pwm4 = constrain(pwm4, 40, 220);
+    /*
+    Serial.print(pwm1);
+    Serial.print("\t");
+    Serial.print(pwm2);
+    Serial.print("\t");
+    Serial.print(pwm3);
+    Serial.print("\t");
+    Serial.println(pwm4);
+    Serial.println("");
+    */
+
+    analogWrite(pwmPin1, pwm1);//min 40 pwm, max 220 pwm; 7.2 volts is 220
+    analogWrite(pwmPin2, pwm2);
+    analogWrite(pwmPin3, pwm3);
+    analogWrite(pwmPin4, pwm4);
+
+    //Serial.print("Time: ");
+    //time_ms = millis();
+    //time_sec = ((float) time_ms)/1000;
+    //Serial.println(time_sec);
+    /*
+    Serial.print("Channel 1: ");
+    Serial.print(encPos1);
+    Serial.print("\t");
+    Serial.print("Channel 2: ");
+    Serial.print(encPos2);
+    Serial.print("\t");
+    Serial.print("Channel 3: ");
+    Serial.print(encPos3);
+    Serial.print("\t");
+    Serial.print("Channel 4: ");
+    Serial.print(encPos4);
+    Serial.println("");
+    Serial.println("");
+    */
+	//channel 1 is the reference wheel where the input is R
+    measured_1 = (float) encPos1;//((float) encPos1)/((float) Ts);
+    error_1 = R - measured_1;
+    encPos1 = 0;//resets encouder count right away
+    derivative_1 = (error_1-previous_error_1)/Ts;
+    integral_1 = integral_1 + (error_1*Ts);
+    derivative_1 = (error_1 - previous_error_1)/Ts;
+    pwm1 = (Kp1*error_1) + (Ki1*integral_1) + (Kd1*derivative_1);
+    previous_error_1 = error_1;
+
+	//Channel 2 uses the measured value of motor 1(in ticks) as input
+    measured_2 = (float) encPos2;//((float) encPos1)/((float) Ts);
+    error_2 = measured_1 - measured_2;
+    encPos2 = 0;//resets encouder count right away
+    derivative_2 = (error_2-previous_error_2)/Ts;
+    integral_2 = integral_2 + (error_2*Ts);
+    derivative_2 = (error_2 - previous_error_2)/Ts;
+    pwm2 = (Kp2*error_2) + (Ki2*integral_2) + (Kd2*derivative_2);
+    previous_error_2 = error_2;
+
+	//Channel uses the measured value of motor 1(in ticks) as input
+    measured_3 = (float) encPos3;//((float) encPos1)/((float) Ts);
+    error_3 = measured_1 - measured_3;
+    encPos3 = 0;//resets encouder count right away
+    derivative_3 = (error_3-previous_error_3)/Ts;
+    integral_3 = integral_3 + (error_3*Ts);
+    derivative_3 = (error_3 - previous_error_3)/Ts;
+    pwm3 = (Kp2*error_3) + (Ki2*integral_3) + (Kd2*derivative_3);
+    previous_error_3 = error_3;
+
+    //Channel 4 uses the measured value of motor 1(in ticks) as input
+	measured_4 = (float) encPos4;//((float) encPos4)/((float) Ts);
+    error_4 = measured_1 - measured_4;
+    encPos4 = 0;//resets encouder count right away
+    derivative_4 = (error_4-previous_error_4)/Ts;
+    integral_4 = integral_4 + (error_4*Ts);
+    derivative_4 = (error_4 - previous_error_4)/Ts;
+    pwm4 = (Kp4*error_4) + (Ki4*integral_4) + (Kd2*derivative_4);
+    previous_error_4 = error_4;
+
+
+    //Serial.print("Channel 1: ");
+    //CLASS DEMO
+    Serial.print(measured_1);
+    Serial.print("\t");
+    Serial.print(measured_2);
+    Serial.print("\t");
+    Serial.print(measured_3);
+    Serial.print("\t");
+    Serial.print(measured_4);
+    Serial.print("\t");
+    Serial.println("");
+
+    //Serial.print("Error_1: ");*/
+    //Serial.println(error_1);
+    //Serial.println("\t");
+    //Serial.print("Proportional_1: ");
+    //Serial.print(proportional_1);
+    //Serial.println("\t");
+    //Serial.print("Integral_1: ");
+    //Serial.print(integral_1);
+    //Serial.println("\t");
+    //Serial.print("Derivative_1: ");
+    //Serial.print(derivative_1);
+    //Serial.println("\t");
+    //Serial.print("PWM1: ");
+
+    //Serial.println("");
+
+    /*
+    Serial.print("Channel 2: ");
+    Serial.print(measured_2);
+    Serial.print("\t");
+    Serial.print("Channel 3: ");
+    Serial.print(measured_3);
+    Serial.print("\t");
+    Serial.print("Channel 4: ");
+    Serial.print(measured_4);
+    Serial.println("");
+    Serial.println("");
+    */
+  }
+}
+
+//Interrupt Pins that increment on the encoder signals rising edge
+void doEncoder1()
+{
+  encPos1++;
+}
+void doEncoder2()
+{
+  encPos2++;
+}
+void doEncoder3()
+{
+  encPos3++;
+}
+void doEncoder4()
+{
+  encPos4++;
+}
